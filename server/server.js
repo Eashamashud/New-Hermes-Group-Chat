@@ -4,10 +4,11 @@ const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const Group = require('./models/Group');
 
 // Import Models
-const User = require('./models/User'); // User model
-const Message = require('./models/Message'); // Message model
+const User = require('./models/User');
+const Message = require('./models/Message');
 
 // Initialize App
 const app = express();
@@ -17,6 +18,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.static('public')); // Serve static files from the "public" folder
 
 // Connect to MongoDB
 mongoose.connect('mongodb+srv://nicoleye301:XgHVNsrpmFTh2ZV6@cluster0.05bnf.mongodb.net/hermes-chat', {
@@ -24,18 +26,19 @@ mongoose.connect('mongodb+srv://nicoleye301:XgHVNsrpmFTh2ZV6@cluster0.05bnf.mong
   useUnifiedTopology: true,
 });
 
+// Active Groups
+const activeGroups = new Set();
+
 // Register a new user
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    // Check if the username already exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ message: 'Username already exists' });
     }
 
-    // Hash the password and save the user
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = new User({ username, password: hashedPassword });
     await newUser.save();
@@ -51,13 +54,11 @@ app.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    // Check if the user exists
     const user = await User.findOne({ username });
     if (!user) {
       return res.status(400).json({ message: 'Invalid username or password' });
     }
 
-    // Validate password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid username or password' });
@@ -74,7 +75,6 @@ app.post('/add-friend', async (req, res) => {
   const { username, friendUsername } = req.body;
 
   try {
-    // Find both users
     const user = await User.findOne({ username });
     const friend = await User.findOne({ username: friendUsername });
 
@@ -82,12 +82,10 @@ app.post('/add-friend', async (req, res) => {
       return res.status(404).json({ message: 'User or friend not found' });
     }
 
-    // Check if already friends
     if (user.friends.includes(friend._id)) {
       return res.status(400).json({ message: 'Already friends' });
     }
 
-    // Add each other as friends
     user.friends.push(friend._id);
     friend.friends.push(user._id);
     await user.save();
@@ -133,13 +131,11 @@ app.get('/messages/:user1/:user2', async (req, res) => {
   }
 });
 
-
 // Send a message to a friend
 app.post('/message', async (req, res) => {
   const { sender, receiver, content } = req.body;
 
   try {
-    // Check if sender and receiver are friends
     const user = await User.findOne({ username: sender }).populate('friends', 'username');
     const isFriend = user.friends.some((friend) => friend.username === receiver);
 
@@ -147,7 +143,6 @@ app.post('/message', async (req, res) => {
       return res.status(403).json({ message: 'You can only message your friends' });
     }
 
-    // Save the message
     const newMessage = new Message({ sender, receiver, content });
     await newMessage.save();
 
@@ -157,27 +152,101 @@ app.post('/message', async (req, res) => {
   }
 });
 
-// Socket.IO for Real-Time Chat
-io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
 
-  // Listen for messages
-  socket.on('sendMessage', async (messageData) => {
+// Create a new group
+app.post('/create-group', async (req, res) => {
+  const { groupName, creatorUsername } = req.body;
+
+  try {
+    // Find the creator
+    const creator = await User.findOne({ username: creatorUsername });
+    if (!creator) {
+      return res.status(404).json({ message: 'Creator not found' });
+    }
+
+    // Check if the group name already exists
+    const existingGroup = await Group.findOne({ name: groupName });
+    if (existingGroup) {
+      return res.status(400).json({ message: 'Group name already exists' });
+    }
+
+    // Create the group and add the creator as a member
+    const newGroup = new Group({ name: groupName, members: [creator._id] });
+    await newGroup.save();
+
+    res.status(201).json({ message: 'Group created successfully', group: newGroup });
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating group', error });
+  }
+});
+
+// Add a member to a group
+app.post('/add-member', async (req, res) => {
+  const { groupName, memberUsername } = req.body;
+
+  try {
+    const group = await Group.findOne({ name: groupName });
+    const member = await User.findOne({ username: memberUsername });
+
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+    if (!member) {
+      return res.status(404).json({ message: 'Member not found' });
+    }
+    if (group.members.includes(member._id)) {
+      return res.status(400).json({ message: 'User already in group' });
+    }
+
+    group.members.push(member._id);
+    await group.save();
+
+    res.status(200).json({ message: 'Member added successfully', group });
+  } catch (error) {
+    res.status(500).json({ message: 'Error adding member', error });
+  }
+});
+
+
+// Socket.IO for Group Chat
+io.on('connection', (socket) => {
+  console.log('A user connected:', socket.id);
+
+  // Join a group
+  socket.on('joinGroup', (groupName) => {
+    socket.join(groupName);
+    console.log(`User ${socket.id} joined group: ${groupName}`);
+  });
+
+  // Send a message to a group
+  socket.on('groupMessage', async ({ groupName, sender, content }) => {
     try {
-      const message = new Message(messageData);
-      await message.save();
-      io.emit('receiveMessage', messageData);
+      const group = await Group.findOne({ name: groupName });
+      if (!group) {
+        return console.error('Group not found');
+      }
+
+      const user = await User.findOne({ username: sender });
+      if (!user || !group.members.includes(user._id)) {
+        return console.error('User not authorized to send messages to this group');
+      }
+
+      const message = { sender: user._id, content };
+      group.messages.push(message);
+      await group.save();
+
+      io.to(groupName).emit('receiveGroupMessage', { sender: user.username, content });
     } catch (error) {
-      console.error('Error saving message:', error);
+      console.error('Error sending group message:', error);
     }
   });
 
-  // Handle disconnection
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    console.log('A user disconnected:', socket.id);
   });
 });
 
+
 // Start Server
-const PORT = process.env.PORT || 5003;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = process.env.PORT || 5004;
+server.listen(PORT, () => console.log(`Server is running on http://localhost:${PORT}`));

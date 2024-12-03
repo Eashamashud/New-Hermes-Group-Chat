@@ -27,6 +27,9 @@ function Navbar() {
             <Link to="/friends" style={styles.link}>
               Friends
             </Link>
+            <Link to="/create-group" style={styles.button}>
+              Create Group Chat
+            </Link>
             <button onClick={handleLogout} style={styles.logoutButton}>
               Logout
             </button>
@@ -62,11 +65,23 @@ const styles = {
   navLinks: {
     display: 'flex',
     gap: '15px',
+    alignItems: 'center',
   },
   link: {
     color: 'white',
     textDecoration: 'none',
     fontSize: '16px',
+  },
+  button: {
+    color: 'white',
+    textDecoration: 'none',
+    fontSize: '16px',
+    padding: '5px 10px',
+    border: 'none', 
+    borderRadius: '5px',
+    backgroundColor: 'transparent', 
+    cursor: 'pointer',
+    transition: '0.3s',
   },
   logoutButton: {
     backgroundColor: 'transparent',

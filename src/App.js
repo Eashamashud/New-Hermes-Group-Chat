@@ -5,6 +5,8 @@ import Login from './components/Login';
 import Signup from './components/Signup';
 import Chat from './components/Chat';
 import FriendList from './components/FriendList';
+import CreateGroup from './components/CreateGroup';
+import GroupChat from './components/GroupChat';
 
 function App() {
   return (
@@ -16,6 +18,8 @@ function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/friends" element={<FriendList />} />
+        <Route path="/create-group" element={<CreateGroup />} />
+        <Route path="/group-chat" element={<GroupChat />} />
       </Routes>
     </Router>
   );
